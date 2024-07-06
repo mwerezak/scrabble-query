@@ -29,8 +29,11 @@ cli.add_argument(
     metavar="FILE",
 )
 cli.add_argument(
-    '--safe-load', action='store_true', dest='safe_load',
-    help="Verify and de-duplicate words when loading wordlist."
+    '--unsafe-load', action='store_false', dest='safe_load',
+    help=(
+        "Use this to get a huge speedup if the wordlist file has already been sanitized. "
+        "Always enabled when using the internal wordlist."
+    )
 )
 cmds = cli.add_subparsers()
 
@@ -110,6 +113,9 @@ def exec_linear_query(args: Namespace) -> None:
 def main(args: Namespace|None = None) -> None:
     if args is None:
         args = cli.parse_args()
+
+    if args.wordlist is None:
+        args.safe_load = False
 
     if args.action == 'linear':
         exec_linear_query(args)

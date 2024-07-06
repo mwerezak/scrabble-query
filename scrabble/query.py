@@ -64,6 +64,9 @@ class LinearQueryMatch(QueryMatch):
     start_pos: int
 
 
+class QueryError(Exception): pass
+
+
 class LinearQuery:
     def __init__(self, query_string: str, pool: LetterPool):
         self.pool = pool
@@ -94,7 +97,7 @@ class LinearQuery:
             return # empty query
 
         if Letter.WILD in self.pool.keys():
-            letter_pat = r'[a-z]'  # allow any letter
+            letter_pat = r'[A-Z]'  # allow any letter
         else:
             letters = ''.join(letter.value for letter in self.pool.keys())
             letter_pat = rf'[{letters}]'
@@ -127,7 +130,7 @@ class LinearQuery:
 
         shortfall = sum(-c for c in self._letter_pool.values() if c < 0)
         if self._letter_pool[Letter.WILD] < shortfall:
-            raise ValueError('query is not satisfiable using the available pool')
+            raise QueryError('query is not satisfiable using the available pool')
 
         self._regex = re.compile(''.join(regex_parts))
 
@@ -204,6 +207,213 @@ class LinearQuery:
 
         for word in wordlist:
             for re_match in self._regex.finditer(word):
+                query_match = self._validate_and_build_match(word, re_match.start())
+                if query_match is not None:
+                    yield query_match
+
+"""
+TransverseQuery Syntax
+
+..sAs       <- linear query
+.           <- context for each position
+asda.asdas
+.
+.
+.
+
+
+..A# asda. ss.sas 
+
+"""
+
+_context_re = re.compile(r'(?P<before>[a-z]*)\.(?P<after>[a-z]*)', flags=re.IGNORECASE)
+
+
+class TransverseQuery:
+    def __init__(self, linear: str, context: Sequence[str], pool: LetterPool):
+        self.pool = pool
+        self.string = linear
+        self.context = context
+
+        self._open_letters = {}
+        self._context_parts = {}
+        self._multipliers = {}
+        self._fixed_letters = {}
+        self._letter_pool = Counter(pool)
+
+        self._parse_query_str(linear)
+        self._parse_context_parts(context)
+
+    _start: bool
+    _end: bool
+    _multipliers: dict[int, int]
+    _fixed_letters: dict[int, Letter]
+    _open_letters: dict[int, set[Letter]]
+    _context_parts: dict[int, tuple[str, str]]
+    _eff_pool: LetterPool
+
+    _letter_chars = set(letter.value for letter in ALL_LETTERS)
+    def _parse_query_str(self, s: str) -> None:
+        match = re.fullmatch(_query_re, s)
+        if match is None:
+            raise ValueError('invalid query string')
+
+        captures = match.groupdict()
+        self._start = captures['start'] is not None
+        self._end = captures['end'] is not None
+        spec = captures['spec']
+
+        if Letter.WILD in self.pool.keys():
+            letter_pat = r'[a-z]'  # allow any letter
+        else:
+            letters = ''.join(letter.value for letter in self.pool.keys())
+            letter_pat = rf'[{letters}]'
+
+        for pos, c in enumerate(spec):
+            if c == '.':
+                self._open_letters[pos] = set()
+            elif c == '#':
+                self._open_letters[pos] = set()
+                self._multipliers[pos] = 2
+            elif c == '!':
+                self._open_letters[pos] = set()
+                self._multipliers[pos] = 3
+            elif c.upper() in self._letter_chars:
+                letter = Letter(c.upper())
+                self._fixed_letters[pos] = letter
+                if c.islower():
+                    self._letter_pool[letter] -= 1  # remove c from the pool
+            else:
+                raise ValueError('invalid query part at position {pos}: {c!r}')
+
+        shortfall = sum(-c for c in self._letter_pool.values() if c < 0)
+        if self._letter_pool[Letter.WILD] < shortfall:
+            raise QueryError('query is not satisfiable using the available pool')
+
+
+    def _parse_context_parts(self, context: Sequence[str]) -> None:
+        if len(context) != len(self._open_letters):
+            raise ValueError(
+                "incorrect number of context parts: "
+                f"query has {len(self._open_letters)} open letter positions, "
+                f"but only {len(context)} context parts were provided"
+            )
+
+        open_pos = sorted(self._open_letters.keys())
+        for pos, part in zip(open_pos, context, strict=True):
+            match = _context_re.fullmatch(part)
+            if match is None:
+                raise ValueError(f'invalid context part: {part}')
+
+            captures = match.groupdict()
+            before, after = captures['before'], captures['after']
+            if before or after:
+                self._context_parts[pos] = before, after
+
+
+    # for each open letter, 
+    def _build_linear_query_regex(self, wordlist: WordList) -> Pattern:
+        if Letter.WILD in self.pool.keys():
+            any_letter = r'[A-Z]'  # allow any letter
+        else:
+            letters = ''.join(letter.value for letter in self.pool.keys())
+            any_letter = rf'[{letters}]'  # just letters from the pool
+
+
+        letter_pos = {
+            *self._open_letters.keys(),
+            *self._fixed_letters.keys(),
+        }
+        assert len(letter_pos) == len(self._open_letters) + len(self._fixed_letters)
+
+        letter_pos = sorted(letter_pos)
+
+
+        regex_parts = []
+        if self._start:
+            regex_parts.append('^')
+
+        for pos in letter_pos:
+            if (letter := self._fixed_letters.get(pos)) is not None:
+                regex_parts.append(letter.value)
+            elif (pair := self._context_parts.get(pos)) is not None:
+                before, after = pair
+                allowed = self._get_allowed_letters_from_context(before, after, wordlist)
+                
+                letters = ''.join(letter.value for letter in allowed)
+                regex_parts.append(rf'[{letters}]')
+            else:
+                regex_parts.append(any_letter)  # allow any letter
+
+        if self._end:
+            regex_parts.append('$')
+
+        return re.compile(''.join(regex_parts))
+
+
+    def _get_allowed_letters_from_context(self, before: str, after: str, wordlist: WordList) -> set[Letter]:
+        if Letter.WILD in self.pool.keys():
+            any_letter = set(ALL_LETTERS)
+        else:
+            any_letter = set(self.pool.keys()) # just letters from the pool
+
+        letters = ''.join(letter.value for letter in any_letter)
+        search_re = re.compile(rf'{before.upper()}(?P<letter>[{letters}]){after.upper()}')
+
+        allowed = set()
+        for word in wordlist:
+            match = search_re.fullmatch(word)
+            if match is not None:
+                let = Letter(match.groupdict()['letter'])
+                allowed.add(let)
+                any_letter.discard(let)
+                if len(any_letter) == 0:
+                    break
+
+        return allowed
+
+    def _validate_and_build_match(self, word: str, start_pos: int) -> QueryMatch|None:
+        # quick check based on word length
+        required_letters = len(word) - len(self._fixed_letters)
+        if required_letters > self._letter_pool.total():
+            return None
+
+        score = 0
+        use_letters = Counter()
+
+        check_letters = [
+            (self._multipliers.get(pos, 1), pos, Letter(c))
+            for idx, c in enumerate(word)
+            if (pos := idx - start_pos) not in self._fixed_letters.keys()
+        ]
+
+        # process positions with multipliers first
+        check_letters.sort(reverse=True)
+
+        for mult, pos, let in check_letters:
+            # are there enough letters?
+            if use_letters[let] >= self._letter_pool[let]:
+                # can we use a wildcard?
+                if use_letters[Letter.WILD] >= self._letter_pool[Letter.WILD]:
+                    return None
+                let = Letter.WILD
+
+            use_letters[let] += 1
+            score += let.score * mult
+
+        score += sum(let.score for let in self._fixed_letters.values())
+
+        return LinearQueryMatch(
+            word = word,
+            start_pos = start_pos,
+            score = score,
+        )
+
+    def execute(self, wordlist: WordList) -> Iterable[QueryMatch]:
+        regex = self._build_linear_query_regex(wordlist)
+
+        for word in wordlist:
+            for re_match in regex.finditer(word):
                 query_match = self._validate_and_build_match(word, re_match.start())
                 if query_match is not None:
                     yield query_match

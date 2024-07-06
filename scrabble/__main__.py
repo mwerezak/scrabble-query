@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from scrabble import DEFAULT_WORDLIST
 from scrabble.utils import load_words, random_pool
-from scrabble.query import ScrabbleQuery, parse_letter_pool
+from scrabble.query import LinearQuery, parse_letter_pool
 
 if TYPE_CHECKING:
     pass
@@ -31,7 +31,7 @@ cli.add_argument(
     metavar="QUERY"
 )
 cli.add_argument(
-    '-n', type=int, default=16, dest='max_results',
+    '-n', type=int, default=0, dest='max_results',
     help="Limit the output to the top NUM results.",
     metavar="NUM",
 )
@@ -69,15 +69,20 @@ def main(args: Namespace|None = None) -> None:
 
     print(f"Loaded {len(wordlist)} words.")
 
-    query = ScrabbleQuery(args.query_string, pool)
+    query = LinearQuery(args.query_string, pool)
 
     results = list(query.execute(wordlist))
     results.sort(key=lambda m: (m.score, len(m.word)), reverse=True)
 
-    for match in results[:args.max_results]:
+    extra_results = None
+    if args.max_results > 0:
+        extra_results = len(results) - args.max_results
+        results = results[:args.max_results]
+
+    for match in results:
         print(match)
 
-    if (extra_results := len(results) - args.max_results) > 0:
+    if extra_results is not None:
         print(f"({extra_results} more result(s)...)")
 
 

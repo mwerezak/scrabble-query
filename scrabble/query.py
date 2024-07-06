@@ -49,29 +49,22 @@ a (lowercase letter) denotes a specific letter from the pool which must be used 
 
 _query_re = re.compile(r'(?P<start>/)?(?P<spec>[a-zA-Z.#!]*)(?P<end>/)?')
 
-def execute_query(query: str, pool: LetterPool) -> ...:
-    # query algorithm
-    # 1. filter using a regex
-    # 2. then validate using the letter pool
-    # 3. finally, sort by score
-
-    #
-
-
-    ...
-
 
 @dataclass(frozen=True)
 class QueryMatch:
     word: str
-    start_pos: int
     score: int
 
     def __str__(self) -> str:
         return f'{self.word} {self.score}'
 
 
-class ScrabbleQuery:
+@dataclass(frozen=True)
+class LinearQueryMatch(QueryMatch):
+    start_pos: int
+
+
+class LinearQuery:
     def __init__(self, query_string: str, pool: LetterPool):
         self.pool = pool
         self.string = query_string
@@ -169,7 +162,7 @@ class ScrabbleQuery:
 
         score += sum(let.score for let in self._fixed_letters.values())
 
-        return QueryMatch(
+        return LinearQueryMatch(
             word = word,
             start_pos = start_pos,
             score = score,
@@ -197,7 +190,6 @@ class ScrabbleQuery:
 
         return QueryMatch(
             word = word,
-            start_pos = 0,
             score = score,
         )
 

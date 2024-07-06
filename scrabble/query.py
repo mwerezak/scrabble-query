@@ -68,7 +68,7 @@ class QueryMatch:
     score: int
 
     def __str__(self) -> str:
-        return f'{self.start_pos} {self.word} ({self.score})'
+        return f'{self.word} {self.score}'
 
 
 class ScrabbleQuery:

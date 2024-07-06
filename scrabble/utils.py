@@ -25,7 +25,7 @@ def load_words_from_text_file_safe(file: IO[str]) -> WordList:
     return words
 
 def load_words_from_text_file_fast(file: IO[str]) -> WordList:
-    return [ word.strip().upper() for word in file.readlines() ]
+    return { word.strip().upper() for word in file.readlines() }
 
 
 def random_pool() -> LetterPool:

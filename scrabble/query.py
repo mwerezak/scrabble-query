@@ -134,7 +134,7 @@ class LinearQuery:
 
         self._regex = re.compile(''.join(regex_parts))
 
-    def _validate_and_build_match(self, word: str, start_pos: int) -> QueryMatch|None:
+    def _validate_and_build_match(self, word: str, start_pos: int) -> LinearQueryMatch|None:
         # quick check based on word length
         required_letters = len(word) - len(self._fixed_letters)
         if required_letters > self._letter_pool.total():
@@ -167,12 +167,12 @@ class LinearQuery:
 
         return LinearQueryMatch(
             word = word,
-            start_pos = start_pos,
             score = score,
+            start_pos = start_pos,
         )
 
     # check if word can match using pool alone
-    def _match_empty_query(self, word: str) -> QueryMatch|None:
+    def _match_empty_query(self, word: str) -> LinearQueryMatch|None:
         if len(word) > self._letter_pool.total():
             return None
 
@@ -191,13 +191,14 @@ class LinearQuery:
                 use_letters[let] += 1
                 score += let.score
 
-        return QueryMatch(
+        return LinearQueryMatch(
             word = word,
             score = score,
+            start_pos = 0,
         )
 
 
-    def execute(self, wordlist: WordList) -> Iterable[QueryMatch]:
+    def execute(self, wordlist: WordList) -> Iterable[LinearQueryMatch]:
         if self._regex is None:
             for word in wordlist:
                 query_match = self._match_empty_query(word)
@@ -227,6 +228,19 @@ asda.asdas
 """
 
 _context_re = re.compile(r'(?P<before>[a-z]*)\.(?P<after>[a-z]*)', flags=re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class TransverseQueryMatch(QueryMatch):
+    start_pos: int
+    extra_words: Sequence[QueryMatch]
+
+    def total_score(self) -> int:
+        return self.score + sum(extra.score for extra in self.extra_words)
+
+    def __str__(self) -> str:
+        words = " ".join([self.word, *(extra.word for extra in self.extra_words)])
+        return f"{words} {self.total_score()}"
 
 
 class TransverseQuery:
@@ -308,8 +322,7 @@ class TransverseQuery:
             captures = match.groupdict()
             before, after = captures['before'], captures['after']
             if before or after:
-                self._context_parts[pos] = before, after
-
+                self._context_parts[pos] = before.upper(), after.upper()
 
     # for each open letter, 
     def _build_linear_query_regex(self, wordlist: WordList) -> Pattern:
@@ -325,9 +338,7 @@ class TransverseQuery:
             *self._fixed_letters.keys(),
         }
         assert len(letter_pos) == len(self._open_letters) + len(self._fixed_letters)
-
         letter_pos = sorted(letter_pos)
-
 
         regex_parts = []
         if self._start:
@@ -339,7 +350,6 @@ class TransverseQuery:
             elif (pair := self._context_parts.get(pos)) is not None:
                 before, after = pair
                 allowed = self._get_allowed_letters_from_context(before, after, wordlist)
-                
                 letters = ''.join(letter.value for letter in allowed)
                 regex_parts.append(rf'[{letters}]')
             else:
@@ -350,29 +360,21 @@ class TransverseQuery:
 
         return re.compile(''.join(regex_parts))
 
-
-    def _get_allowed_letters_from_context(self, before: str, after: str, wordlist: WordList) -> set[Letter]:
+    def _get_allowed_letters_from_context(self, before: str, after: str, wordlist: WordList) -> list[Letter]:
+        """Return letter -> score"""
         if Letter.WILD in self.pool.keys():
-            any_letter = set(ALL_LETTERS)
+            candidates = ALL_LETTERS
         else:
-            any_letter = set(self.pool.keys()) # just letters from the pool
+            candidates = self.pool.keys() # just letters from the pool
 
-        letters = ''.join(letter.value for letter in any_letter)
-        search_re = re.compile(rf'{before.upper()}(?P<letter>[{letters}]){after.upper()}')
+        allowed_letters = []
+        for letter in candidates:
+            candidate_word = before + letter.value + after
+            if candidate_word in wordlist:
+                allowed_letters.append(letter)
+        return allowed_letters
 
-        allowed = set()
-        for word in wordlist:
-            match = search_re.fullmatch(word)
-            if match is not None:
-                let = Letter(match.groupdict()['letter'])
-                allowed.add(let)
-                any_letter.discard(let)
-                if len(any_letter) == 0:
-                    break
-
-        return allowed
-
-    def _validate_and_build_match(self, word: str, start_pos: int) -> QueryMatch|None:
+    def _validate_and_build_match(self, word: str, start_pos: int) -> TransverseQueryMatch|None:
         # quick check based on word length
         required_letters = len(word) - len(self._fixed_letters)
         if required_letters > self._letter_pool.total():
@@ -390,6 +392,7 @@ class TransverseQuery:
         # process positions with multipliers first
         check_letters.sort(reverse=True)
 
+        extra_words = []
         for mult, pos, let in check_letters:
             # are there enough letters?
             if use_letters[let] >= self._letter_pool[let]:
@@ -401,15 +404,30 @@ class TransverseQuery:
             use_letters[let] += 1
             score += let.score * mult
 
+            # if a transverse word was formed in this position, add that to the score
+            parts = self._context_parts.get(pos)
+            if parts is not None:
+                extra_score = score  # letter appears in both words
+                for part in parts:
+                    extra_score += sum(Letter(c).score for c in part)
+
+                before, after = parts
+                extra_match = QueryMatch(
+                    word = before + let.value + after,
+                    score = extra_score,
+                )
+                extra_words.append(extra_match)
+
         score += sum(let.score for let in self._fixed_letters.values())
 
-        return LinearQueryMatch(
+        return TransverseQueryMatch(
             word = word,
             start_pos = start_pos,
             score = score,
+            extra_words = extra_words,
         )
 
-    def execute(self, wordlist: WordList) -> Iterable[QueryMatch]:
+    def execute(self, wordlist: WordList) -> Iterable[TransverseQueryMatch]:
         regex = self._build_linear_query_regex(wordlist)
 
         for word in wordlist:

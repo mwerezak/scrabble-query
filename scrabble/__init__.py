@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 type LetterPool = Mapping[Letter, int]
-type WordList = Collection[str]
+type WordList = Set[str]
 
 
 DEFAULT_WORDLIST = os.path.join(os.path.dirname(__file__), 'Collins-2019.txt')

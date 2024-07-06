@@ -154,7 +154,7 @@ def exec_transverse_query(args: Namespace) -> None:
     results = list(query.execute(wordlist))
     results.sort(key=lambda m: (m.score, len(m.word)), reverse=True)
 
-    extra_results = None
+    extra_results = 0
     if args.max_results > 0:
         extra_results = len(results) - args.max_results
         results = results[:args.max_results]
@@ -162,7 +162,7 @@ def exec_transverse_query(args: Namespace) -> None:
     for match in results:
         print(match)
 
-    if extra_results is not None:
+    if extra_results > 0:
         print(f"({extra_results} more result(s)...)")
 
 

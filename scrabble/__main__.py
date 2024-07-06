@@ -19,37 +19,56 @@ if TYPE_CHECKING:
 cli = ArgumentParser(
     description="Scrabble query tool.",
 )
-
-cli.add_argument(
-    'letter_pool',
-    help="Letter pool specification string.",
-    metavar="POOL",
-)
-cli.add_argument(
-    'query_string', nargs='?', default='',
-    help="Query string. Omit to search using pool alone.",
-    metavar="QUERY"
-)
-cli.add_argument(
-    '-n', type=int, default=0, dest='max_results',
-    help="Limit the output to the top NUM results.",
-    metavar="NUM",
-)
 cli.add_argument(
     '--wordlist', default=None, dest='wordlist',
     help="Optional path to external wordlist file.",
     metavar="FILE",
 )
 
+cmds = cli.add_subparsers()
+
+linear_query = cmds.add_parser(
+    'linear',
+    help="Perform a linear query."
+)
+linear_query.add_argument(
+    'letter_pool',
+    help="Letter pool specification string.",
+    metavar="POOL",
+)
+linear_query.add_argument(
+    'query_string', nargs='?', default='',
+    help="Query string. Omit to search using pool alone.",
+    metavar="QUERY"
+)
+linear_query.add_argument(
+    '-n', type=int, default=0, dest='max_results',
+    help="Limit the query output to the top NUM results.",
+    metavar="NUM",
+)
+linear_query.set_defaults(action='linear')
+
 
 def error_summary(error: BaseException) -> str:
     return f'({type(error).__name__}) {error}'
 
 
-def main(args: Namespace|None = None) -> None:
-    if args is None:
-        args = cli.parse_args()
+def load_wordlist_file(filepath: str) -> WordList:
+    print("Reading wordlist...")
+    filepath = filepath or DEFAULT_WORDLIST
+    try:
+        with open(filepath, 'rt') as file:
+            wordlist = load_words(file)
+    except Exception as err:
+        print(f"Failed to load wordlist from file {filepath}!")
+        print(error_summary(err))
+        sys.exit(1)
 
+    print(f"Loaded {len(wordlist)} words.")
+
+    return wordlist
+
+def exec_linear_query(args: Namespace) -> None:
     try:
         pool = parse_letter_pool(args.letter_pool)
     except Exception as err:
@@ -57,17 +76,7 @@ def main(args: Namespace|None = None) -> None:
         print(error_summary(err))
         sys.exit(1)
 
-    print("Reading wordlist...")
-    words_path = args.wordlist or DEFAULT_WORDLIST
-    try:
-        with open(words_path, 'rt') as file:
-            wordlist = load_words(file)
-    except Exception as err:
-        print(f"Failed to load wordlist from file {words_path}!")
-        print(error_summary(err))
-        sys.exit(1)
-
-    print(f"Loaded {len(wordlist)} words.")
+    wordlist = load_wordlist_file(args.wordlist)
 
     query = LinearQuery(args.query_string, pool)
 
@@ -84,6 +93,15 @@ def main(args: Namespace|None = None) -> None:
 
     if extra_results is not None:
         print(f"({extra_results} more result(s)...)")
+
+
+
+def main(args: Namespace|None = None) -> None:
+    if args is None:
+        args = cli.parse_args()
+
+    if args.action == 'linear':
+        exec_linear_query(args)
 
 
 

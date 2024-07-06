@@ -9,7 +9,11 @@ from argparse import ArgumentParser, Namespace
 from typing import TYPE_CHECKING
 
 from scrabble import DEFAULT_WORDLIST
-from scrabble.utils import load_words, random_pool
+from scrabble.utils import (
+    random_pool, 
+    load_words_from_text_file_fast,
+    load_words_from_text_file_safe,
+)
 from scrabble.query import LinearQuery, parse_letter_pool
 
 if TYPE_CHECKING:
@@ -24,8 +28,34 @@ cli.add_argument(
     help="Optional path to external wordlist file.",
     metavar="FILE",
 )
-
+cli.add_argument(
+    '--safe-load', action='store_true', dest='safe_load',
+    help="Verify and de-duplicate words when loading wordlist."
+)
 cmds = cli.add_subparsers()
+
+
+def error_summary(error: BaseException) -> str:
+    return f'({type(error).__name__}) {error}'
+
+def load_wordlist_file(filepath: str, safe: bool) -> WordList:
+    print("Reading wordlist...")
+    filepath = filepath or DEFAULT_WORDLIST
+    try:
+        with open(filepath, 'rt') as file:
+            if safe:
+                wordlist = load_words_from_text_file_safe(file)
+            else:
+                wordlist = load_words_from_text_file_fast(file)
+    except Exception as err:
+        print(f"Failed to load wordlist from text file {filepath}!")
+        print(error_summary(err))
+        sys.exit(1)
+
+    print(f"Loaded {len(wordlist)} words.")
+
+    return wordlist
+
 
 linear_query = cmds.add_parser(
     'linear',
@@ -49,25 +79,6 @@ linear_query.add_argument(
 linear_query.set_defaults(action='linear')
 
 
-def error_summary(error: BaseException) -> str:
-    return f'({type(error).__name__}) {error}'
-
-
-def load_wordlist_file(filepath: str) -> WordList:
-    print("Reading wordlist...")
-    filepath = filepath or DEFAULT_WORDLIST
-    try:
-        with open(filepath, 'rt') as file:
-            wordlist = load_words(file)
-    except Exception as err:
-        print(f"Failed to load wordlist from file {filepath}!")
-        print(error_summary(err))
-        sys.exit(1)
-
-    print(f"Loaded {len(wordlist)} words.")
-
-    return wordlist
-
 def exec_linear_query(args: Namespace) -> None:
     try:
         pool = parse_letter_pool(args.letter_pool)
@@ -76,7 +87,7 @@ def exec_linear_query(args: Namespace) -> None:
         print(error_summary(err))
         sys.exit(1)
 
-    wordlist = load_wordlist_file(args.wordlist)
+    wordlist = load_wordlist_file(args.wordlist, args.safe_load)
 
     query = LinearQuery(args.query_string, pool)
 

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     pass
 
 
-def load_words(file: IO[str]) -> WordList:
+def load_words_from_text_file_safe(file: IO[str]) -> WordList:
     words = set()
     for word in file.readlines():
         word = word.strip().upper()
@@ -23,6 +23,9 @@ def load_words(file: IO[str]) -> WordList:
             raise ValueError(f'invalid word: {word}')
         words.add(word)
     return words
+
+def load_words_from_text_file_fast(file: IO[str]) -> WordList:
+    return [ word.strip().upper() for word in file.readlines() ]
 
 
 def random_pool() -> LetterPool:

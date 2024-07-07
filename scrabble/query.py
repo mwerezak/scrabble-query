@@ -325,7 +325,7 @@ class TransverseQuery:
                 self._context_parts[pos] = before.upper(), after.upper()
 
     # for each open letter, 
-    def _build_linear_query_regex(self, wordlist: WordList) -> Pattern:
+    def _build_linear_query_regex(self, wordlist: WordList) -> Optional[Pattern]:
         if Letter.WILD in self.pool.keys():
             any_letter = r'[A-Z]'  # allow any letter
         else:
@@ -349,7 +349,11 @@ class TransverseQuery:
                 regex_parts.append(letter.value)
             elif (pair := self._context_parts.get(pos)) is not None:
                 before, after = pair
+
                 allowed = self._get_allowed_letters_from_context(before, after, wordlist)
+                if len(allowed) == 0:
+                    return None  # no possible words
+
                 letters = ''.join(letter.value for letter in allowed)
                 regex_parts.append(rf'[{letters}]')
             else:
@@ -429,6 +433,8 @@ class TransverseQuery:
 
     def execute(self, wordlist: WordList) -> Iterable[TransverseQueryMatch]:
         regex = self._build_linear_query_regex(wordlist)
+        if regex is None:
+            return
 
         for word in wordlist:
             for re_match in regex.finditer(word):

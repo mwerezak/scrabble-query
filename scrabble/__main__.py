@@ -8,7 +8,7 @@ import sys
 from argparse import ArgumentParser, Namespace
 from typing import TYPE_CHECKING
 
-from scrabble import DEFAULT_WORDLIST
+from scrabble import WORDLISTS, DEFAULT_WORDLIST, WordList
 from scrabble.utils import (
     random_pool, 
     load_words_from_text_file_fast,
@@ -23,17 +23,18 @@ if TYPE_CHECKING:
 cli = ArgumentParser(
     description="Scrabble query tool.",
 )
-cli.add_argument(
-    '--wordlist', default=None, dest='wordlist',
-    help="Optional path to external wordlist file.",
-    metavar="FILE",
+cli.set_defaults(action=None)
+
+wordlist = cli.add_mutually_exclusive_group()
+wordlist.add_argument(
+    '--wordlist', default=DEFAULT_WORDLIST, dest='wordlist',
+    help="Select the internal wordlist to use. Available lists: " + ", ".join(sorted(WORDLISTS.keys())),
+    metavar="NAME",
 )
-cli.add_argument(
-    '--unsafe-load', action='store_false', dest='safe_load',
-    help=(
-        "Use this to get a huge speedup if the wordlist file has already been sanitized. "
-        "Always enabled when using the internal wordlist."
-    )
+wordlist.add_argument(
+    '--wordfile', default=None, dest='ext_file',
+    help="Load wordlist from a text file instead of using an internal wordlist.",
+    metavar="FILE",
 )
 cmds = cli.add_subparsers()
 
@@ -41,17 +42,19 @@ cmds = cli.add_subparsers()
 def error_summary(error: BaseException) -> str:
     return f'({type(error).__name__}) {error}'
 
-def load_wordlist_file(filepath: str, safe: bool) -> WordList:
+def load_wordlist_file(args: Namespace) -> WordList:
     print("Reading wordlist...")
-    filepath = filepath or DEFAULT_WORDLIST
+
+    if args.ext_file is not None:
+        filepath = args.ext_file
+    else:
+        filepath = DEFAULT_WORDLIST[args.wordlist]
+
     try:
         with open(filepath, 'rt') as file:
-            if safe:
-                wordlist = load_words_from_text_file_safe(file)
-            else:
-                wordlist = load_words_from_text_file_fast(file)
+            wordlist = WordList.load_json(file)
     except Exception as err:
-        print(f"Failed to load wordlist from text file {filepath}!")
+        print(f"Failed to load wordlist from file {filepath}!")
         print(error_summary(err))
         sys.exit(1)
 
@@ -90,7 +93,7 @@ def exec_linear_query(args: Namespace) -> None:
         print(error_summary(err))
         sys.exit(1)
 
-    wordlist = load_wordlist_file(args.wordlist, args.safe_load)
+    wordlist = load_wordlist_file(args)
 
     query = LinearQuery(args.query_string, pool)
 
@@ -147,7 +150,7 @@ def exec_transverse_query(args: Namespace) -> None:
         print(error_summary(err))
         sys.exit(1)
 
-    wordlist = load_wordlist_file(args.wordlist, args.safe_load)
+    wordlist = load_wordlist_file(args)
 
     query = TransverseQuery(args.linear_part, args.context_parts, pool)
 
@@ -173,6 +176,10 @@ def main(args: Namespace|None = None) -> None:
 
     if args.wordlist is None:
         args.safe_load = False
+
+    if args.action is None:
+        print("No query method selected.")
+        sys.exit(0)
 
     try:
         if args.action == 'linear':

@@ -48,7 +48,7 @@ def load_wordlist_file(args: Namespace) -> WordList:
     if args.ext_file is not None:
         filepath = args.ext_file
     else:
-        filepath = DEFAULT_WORDLIST[args.wordlist]
+        filepath = WORDLISTS[args.wordlist]
 
     try:
         with open(filepath, 'rt') as file:

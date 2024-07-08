@@ -133,12 +133,12 @@ transverse_query.add_argument(
     metavar="QUERY"
 )
 transverse_query.add_argument(
-    'context_parts', nargs='*',
+    'crosswords', nargs='*',
     help=(
-        "Context parts of the query. One context part must be provided for "
+        "Crossword part of the query. One crossword (or .) must be provided for "
         "each open letter position present in the linear part of the query."
     ),
-    metavar="CONTEXT",
+    metavar="CROSSWORDS",
 )
 transverse_query.set_defaults(action='transverse')
 
@@ -153,7 +153,7 @@ def exec_transverse_query(args: Namespace) -> None:
 
     wordlist = load_wordlist_file(args)
 
-    query = TransverseQuery(args.linear_part, args.context_parts, pool)
+    query = TransverseQuery(args.linear_part, args.crosswords, pool)
 
     results = list(query.execute(wordlist))
     results.sort(key=lambda m: (m.score, len(m.word)), reverse=True)
@@ -176,17 +176,17 @@ dynamic_query.add_argument(
     metavar="QUERY"
 )
 dynamic_query.add_argument(
-    'context_parts', nargs='*',
+    'crosswords', nargs='*',
     help=(
-        "Context parts of the query. If no context is given, a linear query will be performed. "
-        "Otherwise a transverse query will be performed."
+        "Crosswords for the query. If crosswords are given, a linear query will be performed. "
+        "Otherwise a transverse query will be performed using the crosswords."
     ),
-    metavar="CONTEXT",
+    metavar="CROSSWORDS",
 )
 dynamic_query.set_defaults(action='dynamic')
 
 def exec_dynamic_query(args: Namespace) -> None:
-    if args.context_parts:
+    if args.crosswords:
         exec_transverse_query(args)
     else:
         exec_linear_query(args)
@@ -212,7 +212,6 @@ def main(args: Namespace|None = None) -> None:
             exec_transverse_query(args)
     except Exception as error:
         print(error_summary(error))
-        raise
         sys.exit(1)
 
 

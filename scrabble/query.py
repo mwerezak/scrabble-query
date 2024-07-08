@@ -215,19 +215,14 @@ class LinearQuery:
 """
 TransverseQuery Syntax
 
-..sAs       <- linear query
-.           <- context for each position
-asda.asdas
-.
-.
-.
-
-
-..A# asda. ss.sas 
+..sAs!       <- linear query
+.            <- crossword for first open position
+asda.asdas   <- crossword for second open position
+.            <- etc.
 
 """
 
-_context_re = re.compile(r'(?P<before>[a-z]*)\.(?P<after>[a-z]*)', flags=re.IGNORECASE)
+_crossword_re = re.compile(r'(?P<before>[a-z]*)\.(?P<after>[a-z]*)', flags=re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -244,27 +239,28 @@ class TransverseQueryMatch(QueryMatch):
 
 
 class TransverseQuery:
-    def __init__(self, linear: str, context: Sequence[str], pool: LetterPool):
+    def __init__(self, linear: str, crosswords: Sequence[str], pool: LetterPool):
         self.pool = pool
         self.string = linear
-        self.context = context
+        self.crosswords = crosswords
 
         self._open_letters = {}
-        self._context_parts = {}
         self._multipliers = {}
         self._fixed_letters = {}
         self._letter_pool = Counter(pool)
 
         self._parse_query_str(linear)
-        self._parse_context_parts(context)
+        
+        self._crossword_parts = self._parse_crossword_parts(
+            sorted(self._open_letters.keys()), 
+            crosswords
+        )
 
     _start: bool
     _end: bool
     _multipliers: dict[int, int]
     _fixed_letters: dict[int, Letter]
     _open_letters: dict[int, set[Letter]]
-    _context_parts: dict[int, tuple[str, str]]
-    _eff_pool: LetterPool
 
     _letter_chars = set(letter.value for letter in ALL_LETTERS)
     def _parse_query_str(self, s: str) -> None:
@@ -276,12 +272,6 @@ class TransverseQuery:
         self._start = captures['start'] is not None
         self._end = captures['end'] is not None
         spec = captures['spec']
-
-        if Letter.WILD in self.pool.keys():
-            letter_pat = r'[a-z]'  # allow any letter
-        else:
-            letters = ''.join(letter.value for letter in self.pool.keys())
-            letter_pat = rf'[{letters}]'
 
         for pos, c in enumerate(spec):
             if c == '.':
@@ -305,27 +295,28 @@ class TransverseQuery:
             raise QueryError('query is not satisfiable using the available pool')
 
 
-    def _parse_context_parts(self, context: Sequence[str]) -> None:
-        if len(context) != len(self._open_letters):
+    def _parse_crossword_parts(self, open_letters: Sequence[int], crosswords: Sequence[str]) -> Mapping[int, tuple[str, str]]:
+        if len(crosswords) != len(open_letters):
             raise ValueError(
-                "incorrect number of context parts: "
+                "incorrect number of crosswords: "
                 f"query has {len(self._open_letters)} open letter positions, "
-                f"but only {len(context)} context parts were provided"
+                f"but only {len(crosswords)} crosswords were provided"
             )
 
-        open_pos = sorted(self._open_letters.keys())
-        for pos, part in zip(open_pos, context, strict=True):
-            match = _context_re.fullmatch(part)
+        crossword_parts = {}
+        for pos, part in zip(open_letters, crosswords, strict=True):
+            match = _crossword_re.fullmatch(part)
             if match is None:
-                raise ValueError(f'invalid context part: {part}')
+                raise ValueError(f'invalid crossword specifier: {part}')
 
             captures = match.groupdict()
             before, after = captures['before'], captures['after']
             if before or after:
-                self._context_parts[pos] = before.upper(), after.upper()
+                crossword_parts[pos] = before.upper(), after.upper()
+        return crossword_parts
 
     # for each open letter, 
-    def _build_linear_query_regex(self, wordlist: WordList) -> Optional[Pattern]:
+    def _build_linear_query_regex(self, wordlist: WordList) -> Pattern|None:
         if Letter.WILD in self.pool.keys():
             any_letter = r'[A-Z]'  # allow any letter
         else:
@@ -347,10 +338,10 @@ class TransverseQuery:
         for pos in letter_pos:
             if (letter := self._fixed_letters.get(pos)) is not None:
                 regex_parts.append(letter.value)
-            elif (pair := self._context_parts.get(pos)) is not None:
+            elif (pair := self._crossword_parts.get(pos)) is not None:
                 before, after = pair
 
-                allowed = self._get_allowed_letters_from_context(before, after, wordlist)
+                allowed = self._get_allowed_letters_from_crossword_parts(before, after, wordlist)
                 if len(allowed) == 0:
                     return None  # no possible words
 
@@ -364,7 +355,7 @@ class TransverseQuery:
 
         return re.compile(''.join(regex_parts))
 
-    def _get_allowed_letters_from_context(self, before: str, after: str, wordlist: WordList) -> list[Letter]:
+    def _get_allowed_letters_from_crossword_parts(self, before: str, after: str, wordlist: WordList) -> list[Letter]:
         """Return letter -> score"""
         if Letter.WILD in self.pool.keys():
             candidates = ALL_LETTERS
@@ -409,7 +400,7 @@ class TransverseQuery:
             score += let.score * mult
 
             # if a transverse word was formed in this position, add that to the score
-            parts = self._context_parts.get(pos)
+            parts = self._crossword_parts.get(pos)
             if parts is not None:
                 extra_score = score  # letter appears in both words
                 for part in parts:

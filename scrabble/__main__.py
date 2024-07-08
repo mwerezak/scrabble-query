@@ -14,10 +14,10 @@ from scrabble.utils import (
     load_words_from_text_file_fast,
     load_words_from_text_file_safe,
 )
-from scrabble.query import LinearQuery, TransverseQuery, parse_letter_pool
+from scrabble.query import LinearQuery, TransverseQuery, QueryMatch, parse_letter_pool
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Collection
 
 
 cli = ArgumentParser(
@@ -36,6 +36,13 @@ wordlist.add_argument(
     help="Load wordlist from a text file instead of using an internal wordlist.",
     metavar="FILE",
 )
+
+cli.add_argument(
+    '-n', type=int, default=0, dest='max_results',
+    help="Limit the query output to the top NUM results.",
+    metavar="NUM",
+)
+
 cmds = cli.add_subparsers()
 
 
@@ -63,6 +70,19 @@ def load_wordlist_file(args: Namespace) -> WordList:
     return wordlist
 
 
+def print_query_results(results: Collection[QueryMatch], max_results: int) -> None:
+    extra_results = 0
+    if max_results > 0:
+        extra_results = len(results) - max_results
+        results = results[:max_results]
+
+    for match in results:
+        print(match)
+
+    if extra_results > 0:
+        print(f"({extra_results} more result(s)...)")
+
+
 linear_query = cmds.add_parser(
     'linear',
     help="Perform a linear query."
@@ -73,14 +93,9 @@ linear_query.add_argument(
     metavar="POOL",
 )
 linear_query.add_argument(
-    'query_string', nargs='?', default='',
+    'linear_part', nargs='?', default='',
     help="Query string. Omit to search using pool alone.",
     metavar="QUERY"
-)
-linear_query.add_argument(
-    '-n', type=int, default=0, dest='max_results',
-    help="Limit the query output to the top NUM results.",
-    metavar="NUM",
 )
 linear_query.set_defaults(action='linear')
 
@@ -95,21 +110,12 @@ def exec_linear_query(args: Namespace) -> None:
 
     wordlist = load_wordlist_file(args)
 
-    query = LinearQuery(args.query_string, pool)
+    query = LinearQuery(args.linear_part, pool)
 
     results = list(query.execute(wordlist))
     results.sort(key=lambda m: (m.score, len(m.word)), reverse=True)
 
-    extra_results = None
-    if args.max_results > 0:
-        extra_results = len(results) - args.max_results
-        results = results[:args.max_results]
-
-    for match in results:
-        print(match)
-
-    if extra_results is not None:
-        print(f"({extra_results} more result(s)...)")
+    print_query_results(results, args.max_results)
 
 
 transverse_query = cmds.add_parser(
@@ -134,11 +140,6 @@ transverse_query.add_argument(
     ),
     metavar="CONTEXT",
 )
-transverse_query.add_argument(
-    '-n', type=int, default=0, dest='max_results',
-    help="Limit the query output to the top NUM results.",
-    metavar="NUM",
-)
 transverse_query.set_defaults(action='transverse')
 
 
@@ -157,17 +158,38 @@ def exec_transverse_query(args: Namespace) -> None:
     results = list(query.execute(wordlist))
     results.sort(key=lambda m: (m.score, len(m.word)), reverse=True)
 
-    extra_results = 0
-    if args.max_results > 0:
-        extra_results = len(results) - args.max_results
-        results = results[:args.max_results]
+    print_query_results(results, args.max_results)
 
-    for match in results:
-        print(match)
 
-    if extra_results > 0:
-        print(f"({extra_results} more result(s)...)")
+dynamic_query = cmds.add_parser(
+    'query',
+    help="Perform a query."
+)
+dynamic_query.add_argument(
+    'letter_pool',
+    help="Letter pool specification string.",
+    metavar="POOL",
+)
+dynamic_query.add_argument(
+    'linear_part',
+    help="Linear part of the query.",
+    metavar="QUERY"
+)
+dynamic_query.add_argument(
+    'context_parts', nargs='*',
+    help=(
+        "Context parts of the query. If no context is given, a linear query will be performed. "
+        "Otherwise a transverse query will be performed."
+    ),
+    metavar="CONTEXT",
+)
+dynamic_query.set_defaults(action='dynamic')
 
+def exec_dynamic_query(args: Namespace) -> None:
+    if args.context_parts:
+        exec_transverse_query(args)
+    else:
+        exec_linear_query(args)
 
 
 def main(args: Namespace|None = None) -> None:
@@ -182,7 +204,9 @@ def main(args: Namespace|None = None) -> None:
         sys.exit(0)
 
     try:
-        if args.action == 'linear':
+        if args.action == 'dynamic':
+            exec_dynamic_query(args)
+        elif args.action == 'linear':
             exec_linear_query(args)
         elif args.action == 'transverse':
             exec_transverse_query(args)

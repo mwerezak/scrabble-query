@@ -6,7 +6,7 @@ The Scrabble query engine is just a tool. It does not play scrabble for you. Tha
 
 Once you are comfortable with the query language, you can quickly enter and compare different potential word locations to weed out promising positions from ones that are not feasible given your current letter set.
 
-This tool was originally created for my own personal use as a result of my friends insisting that I play Scrabble with them. They deserve to be acknowledged as creating it was a great weekend project and it ended up working much better than I expected.
+This tool was originally created for my own personal use as a result of my friends insisting that I play Scrabble with them. Creating it was a great weekend project and it ended up working much better than I expected.
 
 ## Requirements
 Python 3.12 or newer.
